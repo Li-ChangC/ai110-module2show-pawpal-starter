@@ -37,8 +37,8 @@ Finally, I used Python dataclasses for the main data objects in the backend skel
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+- The scheduler checks for exact time matches when finding conflicts instead of comparing overlapping durations.
+- That tradeoff is reasonable for this project because it keeps the logic simple and easy to explain, while still catching the most common pet-care collisions like two tasks both set for 08:00.
 
 ---
 
