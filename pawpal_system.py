@@ -1,10 +1,27 @@
 from __future__ import annotations
 
 import calendar
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
+
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+TASK_EMOJIS = {
+    "feeding": "🍽️",
+    "feed": "🍽️",
+    "walk": "🐕",
+    "medication": "💊",
+    "med": "💊",
+    "groom": "✂️",
+    "brush": "🪮",
+    "litter": "🧹",
+    "flea": "🪲",
+    "play": "🎾",
+}
 
 
 @dataclass
@@ -12,6 +29,7 @@ class Task:
     description: str
     time: str
     frequency: str = "once"
+    priority: str = "normal"
     start_date: date = field(default_factory=date.today)
     repeat_every_days: int | None = None
     days_of_week: tuple[int, ...] | None = None
@@ -19,9 +37,33 @@ class Task:
     completed: bool = False
     task_id: str = field(default_factory=lambda: str(uuid4()))
 
+    def __post_init__(self) -> None:
+        self.frequency = self.frequency.strip().lower()
+        self.priority = self.priority.strip().lower()
+
+        if self.priority == "normal":
+            self.priority = "medium"
+
+        if self.priority not in PRIORITY_ORDER:
+            self.priority = "medium"
+
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.completed = True
+
+    def priority_rank(self) -> int:
+        """Return a numeric ranking for priority-based sorting."""
+        return PRIORITY_ORDER.get(self.priority, PRIORITY_ORDER["medium"])
+
+    def display_icon(self) -> str:
+        """Return a small emoji that matches the task description."""
+        description = self.description.lower()
+
+        for keyword, emoji in TASK_EMOJIS.items():
+            if keyword in description:
+                return emoji
+
+        return "🐾"
 
     def is_recurring(self) -> bool:
         """Return whether this task should repeat."""
@@ -95,6 +137,7 @@ class Task:
             description=self.description,
             time=self.time,
             frequency=self.frequency,
+            priority=self.priority,
             start_date=self.next_occurrence_date(),
             repeat_every_days=self.repeat_every_days,
             days_of_week=self.days_of_week,
@@ -108,6 +151,51 @@ class Task:
     def update_time(self, new_time: str) -> None:
         """Update the task's scheduled time."""
         self.time = new_time
+
+    def to_dict(self) -> dict:
+        """Convert this task into a JSON-safe dictionary."""
+        return {
+            "description": self.description,
+            "time": self.time,
+            "frequency": self.frequency,
+            "priority": self.priority,
+            "start_date": self.start_date.isoformat(),
+            "repeat_every_days": self.repeat_every_days,
+            "days_of_week": list(self.days_of_week) if self.days_of_week is not None else None,
+            "days_of_month": list(self.days_of_month) if self.days_of_month is not None else None,
+            "completed": self.completed,
+            "task_id": self.task_id,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> Task:
+        """Build a task from a persisted dictionary payload."""
+        start_date_value = payload.get("start_date")
+        if start_date_value:
+            start_date = date.fromisoformat(start_date_value)
+        else:
+            start_date = date.today()
+
+        days_of_week = payload.get("days_of_week")
+        if days_of_week is not None:
+            days_of_week = tuple(days_of_week)
+
+        days_of_month = payload.get("days_of_month")
+        if days_of_month is not None:
+            days_of_month = tuple(days_of_month)
+
+        return cls(
+            description=payload.get("description", ""),
+            time=payload.get("time", "00:00"),
+            frequency=payload.get("frequency", "once"),
+            priority=payload.get("priority", "medium"),
+            start_date=start_date,
+            repeat_every_days=payload.get("repeat_every_days"),
+            days_of_week=days_of_week,
+            days_of_month=days_of_month,
+            completed=payload.get("completed", False),
+            task_id=payload.get("task_id", str(uuid4())),
+        )
 
 
 @dataclass
@@ -139,6 +227,31 @@ class Pet:
     def get_completed_tasks(self) -> list[Task]:
         """Return only tasks that are completed."""
         return [task for task in self.tasks if task.completed]
+
+    def to_dict(self) -> dict:
+        """Convert this pet into a JSON-safe dictionary."""
+        return {
+            "name": self.name,
+            "species": self.species,
+            "breed": self.breed,
+            "birth_date": self.birth_date.isoformat() if self.birth_date is not None else None,
+            "tasks": [task.to_dict() for task in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> Pet:
+        """Build a pet from a persisted dictionary payload."""
+        birth_date_value = payload.get("birth_date")
+        birth_date = date.fromisoformat(birth_date_value) if birth_date_value else None
+
+        pet = cls(
+            name=payload.get("name", "Unnamed Pet"),
+            species=payload.get("species", "other"),
+            breed=payload.get("breed", ""),
+            birth_date=birth_date,
+        )
+        pet.tasks = [Task.from_dict(task_payload) for task_payload in payload.get("tasks", [])]
+        return pet
 
 
 class Owner:
@@ -174,6 +287,37 @@ class Owner:
         for pet in self.pets:
             tasks.extend(pet.get_pending_tasks())
         return tasks
+
+    def to_dict(self) -> dict:
+        """Convert the owner, pets, and tasks into JSON-safe data."""
+        return {"name": self.name, "pets": [pet.to_dict() for pet in self.pets]}
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> Owner:
+        """Build an owner from a persisted dictionary payload."""
+        owner = cls(name=payload.get("name", "Local User"))
+        owner.pets = [Pet.from_dict(pet_payload) for pet_payload in payload.get("pets", [])]
+        return owner
+
+    def save_to_json(self, file_path: str | Path = "data.json") -> None:
+        """Persist this owner and all nested pets/tasks to disk."""
+        path = Path(file_path)
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    @classmethod
+    def load_from_json(cls, file_path: str | Path = "data.json") -> Owner:
+        """Load an owner from disk, returning an empty owner if the file does not exist."""
+        path = Path(file_path)
+
+        if not path.exists():
+            return cls()
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return cls()
+
+        return cls.from_dict(payload)
 
 
 class Scheduler:
@@ -227,18 +371,50 @@ class Scheduler:
         return scheduled_tasks
 
     def sort_by_time(self, tasks: Iterable[Task] | None = None) -> list[Task]:
-        """Sort tasks by time, then by frequency and description for stability."""
+        """Sort tasks by priority first, then by time, then by frequency and description."""
 
         tasks_to_sort = list(tasks if tasks is not None else self.get_pending_tasks())
 
-        def sort_key(task: Task) -> tuple[datetime, str, str]:
+        def sort_key(task: Task) -> tuple[int, datetime, str, str]:
             return (
+                task.priority_rank(),
                 self._parse_time(task.time),
                 task.frequency.lower(),
                 task.description.lower(),
             )
 
         return sorted(tasks_to_sort, key=sort_key)
+
+    def find_next_available_slot(
+        self,
+        plan_date: date | None = None,
+        start_time: str = "06:00",
+        end_time: str = "22:00",
+        step_minutes: int = 30,
+    ) -> str | None:
+        """Return the first open time slot for a date using fixed time increments."""
+        current_date = plan_date or date.today()
+        occupied_times = {
+            task.time.strip() for _, task in self.get_scheduled_tasks_with_pet(current_date)
+        }
+
+        try:
+            current_slot = datetime.strptime(start_time, "%H:%M")
+            last_slot = datetime.strptime(end_time, "%H:%M")
+        except ValueError:
+            return None
+
+        while current_slot <= last_slot:
+            slot_text = current_slot.strftime("%H:%M")
+            if slot_text not in occupied_times:
+                return slot_text
+            current_slot += timedelta(minutes=step_minutes)
+
+        return None
+
+    def format_task_line(self, pet_name: str, task: Task) -> str:
+        """Return a readable CLI line with an emoji and priority marker."""
+        return f"{task.display_icon()} {task.time} - {pet_name}: {task.description} [priority: {task.priority}]"
 
     def organize_tasks(self) -> list[Task]:
         """Sort pending tasks into a stable daily order."""
@@ -316,7 +492,7 @@ class Scheduler:
         pet_lookup = {task.task_id: pet_name for pet_name, task in scheduled_tasks_with_pet}
 
         return [
-            f"{task.time} - {pet_lookup[task.task_id]}: {task.description}"
+            self.format_task_line(pet_lookup[task.task_id], task)
             for task in sorted_tasks
         ]
 

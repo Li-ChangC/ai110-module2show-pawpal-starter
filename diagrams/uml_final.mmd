@@ -1,0 +1,73 @@
+classDiagram
+    class Task {
+        +string description
+        +string time
+        +string frequency
+        +string priority
+        +date start_date
+        +int repeat_every_days
+        +int[] days_of_week
+        +int[] days_of_month
+        +bool completed
+        +string task_id
+        +mark_complete() void
+        +is_recurring() bool
+        +next_occurrence_date() date
+        +occurs_on(target_date: date) bool
+        +create_next_occurrence() Task
+        +mark_incomplete() void
+        +update_time(new_time: string) void
+        -_add_months(source_date: date, months: int) date
+    }
+
+    class Pet {
+        +string name
+        +string species
+        +string breed
+        +date birth_date
+        +Task[] tasks
+        +add_task(task: Task) void
+        +remove_task(task_id: string) bool
+        +get_tasks() Task[]
+        +get_pending_tasks() Task[]
+        +get_completed_tasks() Task[]
+    }
+
+    class Owner {
+        +string name
+        +Pet[] pets
+        +add_pet(pet: Pet) void
+        +remove_pet(pet_name: string) bool
+        +get_pets() Pet[]
+        +get_all_tasks() Task[]
+        +get_all_pending_tasks() Task[]
+    }
+
+    class Scheduler {
+        +Owner owner
+        -_parse_time(task_time: string) datetime
+        -_iter_tasks_with_pet() tuple[string, Task][]
+        +get_all_tasks() Task[]
+        +get_pending_tasks() Task[]
+        +get_scheduled_tasks(plan_date: date) Task[]
+        +get_scheduled_tasks_with_pet(plan_date: date) tuple[string, Task][]
+        +sort_by_time(tasks: Task[]) Task[]
+        +organize_tasks() Task[]
+        +filter_tasks(pet_name: string, completed: bool) Task[]
+        +get_recurring_tasks() Task[]
+        +detect_conflicts() Task[][]
+        +get_conflict_warnings() string[]
+        +generate_daily_plan(plan_date: date) string[]
+        +mark_task_complete(task_id: string) bool
+        +find_task(task_id: string) Task
+    }
+
+    Owner "1" o-- "many" Pet : owns
+    Pet "1" *-- "many" Task : contains
+    Scheduler ..> Owner : reads
+    Scheduler ..> Pet : inspects
+    Scheduler ..> Task : schedules
+
+    note for Task "Backward-compatible alias: TaskInfo = Task"
+    note for Pet "Backward-compatible aliases: PetInfo = Pet, PetCareTasks = Pet"
+    note for Scheduler "Backward-compatible alias: Schedule = Scheduler"

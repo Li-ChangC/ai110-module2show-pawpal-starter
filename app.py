@@ -1,6 +1,10 @@
 import streamlit as st
+from datetime import date
+from pathlib import Path
 
 from pawpal_system import Owner, Pet, Scheduler, Task
+
+DATA_FILE = Path(__file__).resolve().parent / "data.json"
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -41,10 +45,12 @@ At minimum, your system should:
 st.divider()
 
 if "owner" not in st.session_state:
-    st.session_state.owner = Owner(name="Jordan")
+    st.session_state.owner = Owner.load_from_json(DATA_FILE)
 
 owner: Owner = st.session_state.owner
 scheduler = Scheduler(owner)
+
+st.caption(f"Persistence file: {DATA_FILE.name} — changes are saved automatically.")
 
 st.subheader("Adding a Pet")
 pet_name = st.text_input("Pet name", value="Mochi")
@@ -56,6 +62,7 @@ if st.button("Add pet"):
         st.info(f"{pet_name} is already in the session vault.")
     else:
         owner.add_pet(Pet(name=pet_name, species=species, breed=breed))
+        owner.save_to_json(DATA_FILE)
         st.success(f"Added {pet_name} to the session vault.")
 
 if owner.get_pets():
@@ -82,7 +89,9 @@ if owner.get_pets():
     with col2:
         task_time = st.text_input("Task time", value="08:00")
     with col3:
-        frequency = st.selectbox("Frequency", ["once", "daily", "weekly"])
+        frequency = st.selectbox("Frequency", ["once", "daily", "weekly", "monthly"])
+
+    task_priority = st.selectbox("Priority", ["low", "medium", "high"], index=1)
 
     if st.button("Add task"):
         selected_pet.add_task(
@@ -90,21 +99,25 @@ if owner.get_pets():
                 description=task_description,
                 time=task_time,
                 frequency=frequency,
+                priority=task_priority,
             )
         )
+        owner.save_to_json(DATA_FILE)
         st.success(f"Added a task for {selected_pet.name}.")
 
     if selected_pet.tasks:
-        st.write(f"Tasks for {selected_pet.name}:")
+        st.success(f"{selected_pet.name} currently has {len(selected_pet.tasks)} task(s).")
         st.table(
             [
                 {
+                    "icon": task.display_icon(),
                     "description": task.description,
                     "time": task.time,
                     "frequency": task.frequency,
+                    "priority": task.priority,
                     "completed": task.completed,
                 }
-                for task in selected_pet.tasks
+                for task in scheduler.sort_by_time(selected_pet.tasks)
             ]
         )
 else:
@@ -113,12 +126,79 @@ else:
 st.divider()
 
 st.subheader("Today's Schedule")
+schedule_date = st.date_input(
+    "View schedule for",
+    value=st.session_state.get("schedule_date", date.today()),
+)
+st.session_state.schedule_date = schedule_date
 
-if st.button("Generate schedule"):
-    today_schedule = scheduler.generate_daily_plan()
+conflict_warnings = scheduler.get_conflict_warnings()
+if conflict_warnings:
+    for warning in conflict_warnings:
+        st.warning(warning)
 
-    if today_schedule:
-        for line in today_schedule:
-            st.write(line)
-    else:
-        st.info("No tasks are scheduled yet.")
+scheduled_tasks = scheduler.get_scheduled_tasks_with_pet(schedule_date)
+
+if scheduled_tasks:
+    st.success(f"{len(scheduled_tasks)} task(s) are scheduled for {schedule_date}.")
+    scheduled_lookup = {task.task_id: pet_name for pet_name, task in scheduled_tasks}
+    sorted_scheduled_tasks = scheduler.sort_by_time([task for _, task in scheduled_tasks])
+    st.table(
+        [
+            {
+                "pet": scheduled_lookup[task.task_id],
+                "icon": task.display_icon(),
+                "time": task.time,
+                "description": task.description,
+                "frequency": task.frequency,
+                "priority": task.priority,
+            }
+            for task in sorted_scheduled_tasks
+        ]
+    )
+    st.markdown("**Readable plan**")
+    for line in scheduler.generate_daily_plan(schedule_date):
+        st.write(line)
+
+    next_slot = scheduler.find_next_available_slot(schedule_date)
+    if next_slot is not None:
+        st.info(f"Next available 30-minute slot: {next_slot}")
+else:
+    st.info("No tasks are scheduled for the selected day yet.")
+
+st.divider()
+
+st.subheader("Filtered Tasks")
+pet_filter_options = ["All pets"] + [pet.name for pet in owner.get_pets()]
+selected_filter_pet = st.selectbox("Filter by pet", pet_filter_options)
+completion_filter = st.selectbox("Filter by completion", ["All tasks", "Pending only", "Completed only"])
+
+completed_filter_value: bool | None
+if completion_filter == "Pending only":
+    completed_filter_value = False
+elif completion_filter == "Completed only":
+    completed_filter_value = True
+else:
+    completed_filter_value = None
+
+filtered_tasks = scheduler.filter_tasks(
+    pet_name=None if selected_filter_pet == "All pets" else selected_filter_pet,
+    completed=completed_filter_value,
+)
+
+if filtered_tasks:
+    st.table(
+        [
+            {
+                "icon": task.display_icon(),
+                "description": task.description,
+                "time": task.time,
+                "frequency": task.frequency,
+                "priority": task.priority,
+                "completed": task.completed,
+            }
+            for task in scheduler.sort_by_time(filtered_tasks)
+        ]
+    )
+else:
+    st.info("No tasks match the selected filters.")

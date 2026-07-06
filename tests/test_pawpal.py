@@ -49,6 +49,23 @@ def test_scheduler_sorts_tasks_by_parsed_time() -> None:
     ]
 
 
+def test_scheduler_sorts_high_priority_before_lower_priority() -> None:
+    owner = Owner("Jordan")
+    pet = Pet(name="Mochi", species="cat")
+    pet.add_task(Task(description="Low priority walk", time="07:00", priority="low"))
+    pet.add_task(Task(description="High priority meds", time="09:00", priority="high"))
+    owner.add_pet(pet)
+
+    scheduler = Scheduler(owner)
+
+    sorted_tasks = scheduler.sort_by_time()
+
+    assert [task.description for task in sorted_tasks] == [
+        "High priority meds",
+        "Low priority walk",
+    ]
+
+
 def test_scheduler_filters_tasks_by_pet_and_completion() -> None:
     owner = Owner("Jordan")
     mochi = Pet(name="Mochi", species="cat")
@@ -139,6 +156,7 @@ def test_daily_plan_includes_pet_name() -> None:
             description="Grooming brush",
             time="07:30",
             frequency="weekly",
+            priority="high",
             start_date=date(2026, 7, 6),
         )
     )
@@ -147,7 +165,7 @@ def test_daily_plan_includes_pet_name() -> None:
     scheduler = Scheduler(owner)
 
     assert scheduler.generate_daily_plan(date(2026, 7, 6)) == [
-        "07:30 - Mochi: Grooming brush"
+        "✂️ 07:30 - Mochi: Grooming brush [priority: high]"
     ]
 
 
@@ -158,6 +176,7 @@ def test_completing_recurring_task_creates_next_occurrence() -> None:
         description="Morning feeding",
         time="08:00",
         frequency="daily",
+        priority="high",
         start_date=date(2026, 7, 6),
     )
     one_off_task = Task(
@@ -182,6 +201,7 @@ def test_completing_recurring_task_creates_next_occurrence() -> None:
     assert next_occurrence.description == recurring_task.description
     assert next_occurrence.time == recurring_task.time
     assert next_occurrence.frequency == recurring_task.frequency
+    assert next_occurrence.priority == recurring_task.priority
     assert next_occurrence.start_date == recurring_task.start_date + timedelta(days=1)
     assert next_occurrence.completed is False
     assert next_occurrence.task_id != recurring_task.task_id
@@ -197,6 +217,7 @@ def test_daily_task_completion_creates_next_day_occurrence() -> None:
         description="Daily feeding",
         time="08:00",
         frequency="daily",
+        priority="normal",
         start_date=date(2026, 7, 6),
     )
 
@@ -227,3 +248,45 @@ def test_scheduler_flags_duplicate_times() -> None:
 
     assert len(conflicts) == 1
     assert [task.description for task in conflicts[0]] == ["Breakfast", "Medication"]
+
+
+def test_owner_json_round_trip_persists_pets_and_tasks(tmp_path: Path) -> None:
+    owner = Owner("Jordan")
+    pet = Pet(name="Mochi", species="cat", breed="Siamese")
+    task = Task(
+        description="Morning feeding",
+        time="08:00",
+        frequency="daily",
+        priority="high",
+        start_date=date(2026, 7, 6),
+    )
+    pet.add_task(task)
+    owner.add_pet(pet)
+
+    file_path = tmp_path / "data.json"
+    owner.save_to_json(file_path)
+
+    loaded_owner = Owner.load_from_json(file_path)
+
+    assert loaded_owner.name == "Jordan"
+    assert len(loaded_owner.pets) == 1
+    loaded_pet = loaded_owner.pets[0]
+    assert loaded_pet.name == "Mochi"
+    assert loaded_pet.breed == "Siamese"
+    assert len(loaded_pet.tasks) == 1
+    loaded_task = loaded_pet.tasks[0]
+    assert loaded_task.description == "Morning feeding"
+    assert loaded_task.priority == "high"
+    assert loaded_task.task_id == task.task_id
+
+
+def test_find_next_available_slot_skips_occupied_times() -> None:
+    owner = Owner("Jordan")
+    pet = Pet(name="Mochi", species="cat")
+    pet.add_task(Task(description="Morning feeding", time="08:00", frequency="daily"))
+    pet.add_task(Task(description="Medication", time="08:30", frequency="daily"))
+    owner.add_pet(pet)
+
+    scheduler = Scheduler(owner)
+
+    assert scheduler.find_next_available_slot(date(2026, 7, 6), start_time="08:00") == "09:00"
