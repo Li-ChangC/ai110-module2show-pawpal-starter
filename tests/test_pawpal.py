@@ -34,6 +34,7 @@ def test_scheduler_sorts_tasks_by_parsed_time() -> None:
     owner = Owner("Jordan")
     pet = Pet(name="Mochi", species="cat")
     pet.add_task(Task(description="Late task", time="18:30"))
+    pet.add_task(Task(description="Noon task", time="12:00 PM"))
     pet.add_task(Task(description="Early task", time="08:00"))
     owner.add_pet(pet)
 
@@ -41,7 +42,11 @@ def test_scheduler_sorts_tasks_by_parsed_time() -> None:
 
     sorted_tasks = scheduler.sort_by_time()
 
-    assert [task.description for task in sorted_tasks] == ["Early task", "Late task"]
+    assert [task.description for task in sorted_tasks] == [
+        "Early task",
+        "Noon task",
+        "Late task",
+    ]
 
 
 def test_scheduler_filters_tasks_by_pet_and_completion() -> None:
@@ -183,3 +188,42 @@ def test_completing_recurring_task_creates_next_occurrence() -> None:
 
     assert scheduler.mark_task_complete(one_off_task.task_id) is True
     assert len(pet.tasks) == 3
+
+
+def test_daily_task_completion_creates_next_day_occurrence() -> None:
+    owner = Owner("Jordan")
+    pet = Pet(name="Mochi", species="cat")
+    recurring_task = Task(
+        description="Daily feeding",
+        time="08:00",
+        frequency="daily",
+        start_date=date(2026, 7, 6),
+    )
+
+    pet.add_task(recurring_task)
+    owner.add_pet(pet)
+
+    scheduler = Scheduler(owner)
+
+    assert scheduler.mark_task_complete(recurring_task.task_id) is True
+
+    next_occurrence = pet.tasks[-1]
+
+    assert next_occurrence.start_date == date(2026, 7, 7)
+    assert next_occurrence.frequency == "daily"
+    assert next_occurrence.completed is False
+
+
+def test_scheduler_flags_duplicate_times() -> None:
+    owner = Owner("Jordan")
+    pet = Pet(name="Mochi", species="cat")
+    pet.add_task(Task(description="Breakfast", time="08:00"))
+    pet.add_task(Task(description="Medication", time="08:00"))
+    owner.add_pet(pet)
+
+    scheduler = Scheduler(owner)
+
+    conflicts = scheduler.detect_conflicts()
+
+    assert len(conflicts) == 1
+    assert [task.description for task in conflicts[0]] == ["Breakfast", "Medication"]
