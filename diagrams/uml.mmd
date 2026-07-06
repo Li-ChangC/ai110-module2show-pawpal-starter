@@ -1,15 +1,48 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
-    %% Keep this file updated so it matches your final implementation.
-
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class PetInfo {
+        +string species
+        +string name
+        +string gender
+        +date dob
+        +string breed
+        +string[] healthIssues
+        +calculateAge() int
+        +updateHealthIssue(issue: string) void
+        +getCareSummary() string
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class PetCareTasks {
+        +TaskInfo[] tasks
+        +addTask(task: TaskInfo) void
+        +removeTask(taskId: string) void
+        +getTasks() TaskInfo[]
     }
 
-    ClassName --> AnotherClass : relationship
+    class Schedule {
+        +date scheduleDate
+        +TaskInfo[] scheduledTasks
+        +string[] availableTimeSlots
+        +string[] constraints
+        +setAvailability(timeSlots: string[]) void
+        +addTask(task: TaskInfo) bool
+        +removeTask(taskId: string) void
+        +canSchedule(task: TaskInfo, timeSlot: string) bool
+        +getSchedule() TaskInfo[]
+    }
+
+    class TaskInfo {
+        +string taskType
+        +string description
+        +string priority
+        +string preferredTime
+        +int durationMinutes
+        +string[] preferences
+        +setPriority(priority: string) void
+        +addPreference(preference: string) void
+        +isCompatibleWith(otherTask: TaskInfo) bool
+    }
+
+    PetInfo *-- "1" PetCareTasks : has
+    PetInfo *-- "1" Schedule : has
+    PetCareTasks *-- "*" TaskInfo : contains
+    Schedule o-- "*" TaskInfo : schedules
